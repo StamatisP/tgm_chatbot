@@ -3,6 +3,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Timers;
 using System.Threading;
 using System.Threading.Tasks;
 using Fleck;
@@ -15,101 +16,124 @@ using IniParser;
 using IniParser.Model;
 
 namespace TwitchInteract
-{
+{ 
     public class Program
     {
         public static bool VotingTime = false;
         public static bool AnarchyMode = false;
         public static IWebSocketConnection pub_socket;
 		static ManualResetEvent _quitEvent = new ManualResetEvent(false);
-
+		public static System.Timers.Timer ChatCheckTimer = new System.Timers.Timer();
+		public static WebSocketServer server;
+ 
         public static void Main(string[] args)
         {
+			ChatCheckTimer.Elapsed += new ElapsedEventHandler(Program.TGM_Close);
+			ChatCheckTimer.Interval = 10000;
+			ChatCheckTimer.Enabled = false;
 			Console.CancelKeyPress += (sender, eArgs) => {
 				_quitEvent.Set();
 				eArgs.Cancel = true;
 			};
-			bool endapp = false;
-            WebSocketServer server = new WebSocketServer("ws://0.0.0.0:8765");
-			server.RestartAfterListenError = true;
-
-            string BotName, BotOauth, TwitchChannel;
-            if (File.Exists(Directory.GetCurrentDirectory() + "/config.ini"))
-            {
-                var parser = new FileIniDataParser();
-                IniData data = parser.ReadFile("config.ini");
-                BotName = data["TGM"]["BotName"];
-                BotOauth = data["TGM"]["BotOauth"];
-                TwitchChannel = data["TGM"]["TwitchChannel"];
-            }
-            else
-            {
-                Console.WriteLine("Enter your bot's name.");
-                BotName = Console.ReadLine();
-                Console.WriteLine("Now enter your bot's OAuth key. You can paste by right clicking in the console window. (https://www.twitchapps.com/tmi/)");
-                BotOauth = Console.ReadLine();
-                Console.WriteLine("What Twitch channel do you want to monitor?");
-                TwitchChannel = Console.ReadLine();
-                var parser = new FileIniDataParser();
-                IniData data = new IniData();
-                data["TGM"]["BotName"] = BotName;
-                data["TGM"]["BotOauth"] = BotOauth;
-                data["TGM"]["TwitchChannel"] = TwitchChannel;
-                parser.WriteFile("config.ini", data);
-            }
-            Bot bot = new Bot(BotName, BotOauth, TwitchChannel);
-
-            server.Start(socket =>
-            {
-                Program.pub_socket = socket;
-                socket.OnOpen = () => Console.WriteLine("Open server");
-                socket.OnClose = () => Console.WriteLine("Close server");
-                socket.OnMessage = message => MessageHandler(message, socket);
-            });
-
-            void MessageHandler(string message, IWebSocketConnection socket)
-            {
-                if (message != "ConnTest")
-                {
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine(message + " " + DateTime.Now.ToString("hh:mm:ss"));
-                }
-                if (message == "Connected Message!")
-                {
-                    Console.WriteLine("WOO HOO! We connected!");
-                }
-                else if (message == "VoteTime")
-                {
-                    VotingTime = true;
-                }
-                else if (message.StartsWith("VoteActions"))
-                {
-                    var actions = message.Split(';');
-                    for (int i = 0; i < actions.Count(); i++)
-                    {
-                        if (i == 0) continue;
-                        if (!Bot.SilentMode) bot.client.SendMessage(TwitchChannel, actions[i]);
-                        //socket.Send(actions[i]);
-                    }
-                }
-                else if (message == "VoteOver")
-                {
-                    VotingTime = false;
-                }
-                else if (message == "anarchymode")
-                {
-                    AnarchyMode = true;
-                }
-                else if (message == "democracymode")
-                {
-                    AnarchyMode = false;
-                }            
-            }
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("Initialized...");
+			TGM_Init();
 			_quitEvent.WaitOne();
 		}
-    }
+
+		static void TGM_Init()
+		{
+			Program.server = new WebSocketServer("ws://0.0.0.0:8765")
+			{
+				RestartAfterListenError = true
+			};
+
+			string BotName, BotOauth, TwitchChannel;
+			if (File.Exists(Directory.GetCurrentDirectory() + "/config.ini"))
+			{
+				var parser = new FileIniDataParser();
+				IniData data = parser.ReadFile("config.ini");
+				BotName = data["TGM"]["BotName"];
+				BotOauth = data["TGM"]["BotOauth"];
+				TwitchChannel = data["TGM"]["TwitchChannel"];
+			}
+			else
+			{
+				Console.WriteLine("Enter your bot's name.");
+				BotName = Console.ReadLine();
+				Console.WriteLine("Now enter your bot's OAuth key. You can paste by right clicking in the console window. (https://www.twitchapps.com/tmi/)");
+				BotOauth = Console.ReadLine();
+				Console.WriteLine("What Twitch channel do you want to monitor?");
+				TwitchChannel = Console.ReadLine();
+				var parser = new FileIniDataParser();
+				IniData data = new IniData();
+				data["TGM"]["BotName"] = BotName;
+				data["TGM"]["BotOauth"] = BotOauth;
+				data["TGM"]["TwitchChannel"] = TwitchChannel;
+				parser.WriteFile("config.ini", data);
+			}
+			Bot bot = new Bot(BotName, BotOauth, TwitchChannel);
+
+			server.Start(socket =>
+			{
+				Program.pub_socket = socket;
+				socket.OnOpen = () => { Console.WriteLine("Open server"); ChatCheckTimer.Enabled = true; };
+				socket.OnClose = () => Console.WriteLine("Close server");
+				socket.OnMessage = message => MessageHandler(message, socket);
+			});
+
+			void MessageHandler(string message, IWebSocketConnection socket)
+			{
+				if (message != "ConnTest")
+				{
+					Console.ForegroundColor = ConsoleColor.Green;
+					Console.WriteLine(message + " " + DateTime.Now.ToString("hh:mm:ss"));
+				}
+				if (message == "Connected Message!")
+				{
+					Console.WriteLine("WOO HOO! We connected!");
+				}
+				else if (message == "VoteTime")
+				{
+					VotingTime = true;
+				}
+				else if (message.StartsWith("VoteActions"))
+				{
+					var actions = message.Split(';');
+					for (int i = 0; i < actions.Count(); i++)
+					{
+						if (i == 0) continue;
+						if (!Bot.SilentMode) bot.client.SendMessage(TwitchChannel, actions[i]);
+						//socket.Send(actions[i]);
+					}
+				}
+				else if (message == "VoteOver")
+				{
+					VotingTime = false;
+				}
+				else if (message == "anarchymode")
+				{
+					AnarchyMode = true;
+				}
+				else if (message == "democracymode")
+				{
+					AnarchyMode = false;
+				}
+			}
+			Console.ForegroundColor = ConsoleColor.Green;
+			Console.WriteLine("Initialized...");
+		}
+
+		static void TGM_Close(object source, ElapsedEventArgs e)
+		{
+			Console.ForegroundColor = ConsoleColor.Red;
+			Console.WriteLine(String.Format("No chat messages have been posted in the last {0} seconds! Restarting, probably a bug.", ChatCheckTimer.Interval / 1000));
+			ChatCheckTimer.Enabled = false;
+			pub_socket.Close();
+			server.Dispose();
+			TGM_Init();
+			//System.Diagnostics.Process.Start(Environment.GetCommandLineArgs()[0], Environment.GetCommandLineArgs()[1]);
+			//Environment.Exit(0);
+		}
+	}
 
     class Bot
     {
@@ -146,7 +170,7 @@ namespace TwitchInteract
 
         private void Client_OnJoinedChannel(object sender, OnJoinedChannelArgs e)
         {
-            Console.WriteLine("Connected successfully!");
+            Console.WriteLine("Connected to chat successfully!");
             if (!SilentMode) client.SendMessage(e.Channel, "Connected successfully!");
         }
 
@@ -169,13 +193,14 @@ namespace TwitchInteract
 				{
 					if (Program.pub_socket != null && Program.pub_socket.ConnectionInfo.ClientIpAddress != null)
 					{
-						Console.WriteLine(Program.pub_socket.ConnectionInfo.ClientIpAddress);
 						Program.pub_socket.Send("PrintTwitchChat\n" + e.ChatMessage.Username + "\n" + e.ChatMessage.Message);
 					}
 				}
             }
-            //Console.WriteLine("chat received");
-        }
+			Program.ChatCheckTimer.Stop();
+			Program.ChatCheckTimer.Start();
+			//Console.WriteLine("chat received");
+		}
 
         private void Client_OnWhisperReceived(object sender, OnWhisperReceivedArgs e)
         {
