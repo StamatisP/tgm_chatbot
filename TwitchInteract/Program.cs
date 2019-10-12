@@ -78,6 +78,7 @@ namespace TwitchInteract
 				socket.OnOpen = () => { Console.WriteLine("Open server"); ChatCheckTimer.Enabled = true; };
 				socket.OnClose = () => Console.WriteLine("Close server");
 				socket.OnMessage = message => MessageHandler(message, socket);
+				socket.OnError = (Exception) => Console.WriteLine("Socket error: ", Exception.ToString());
 			});
 
 			void MessageHandler(string message, IWebSocketConnection socket)
@@ -191,7 +192,7 @@ namespace TwitchInteract
             {
 				if (PrintTwitchChat)
 				{
-					if (Program.pub_socket != null && Program.pub_socket.ConnectionInfo.ClientIpAddress != null)
+					if (Program.pub_socket != null && Program.pub_socket.IsAvailable)
 					{
 						Program.pub_socket.Send("PrintTwitchChat\n" + e.ChatMessage.Username + "\n" + e.ChatMessage.Message);
 					}
