@@ -27,6 +27,8 @@ namespace TwitchInteract
 		public static int? ChatCheckInterval;
 		public static TwitchAPI API;
 
+		public static bool ChatBossMode = false;
+
 		public static void Main(string[] args)
         {
 			if (File.Exists(Directory.GetCurrentDirectory() + "/config.ini"))
@@ -48,6 +50,8 @@ namespace TwitchInteract
 				BotOauth = Console.ReadLine();
 				Console.WriteLine("What Twitch channel do you want to monitor?");
 				TwitchChannel = Console.ReadLine();
+				Console.WriteLine("What's the maximum amount of seconds between any two chat messages in your stream? (If you have frequent chatters, set this to 5 or lower.)");
+				ChatCheckInterval = Int32.Parse(Console.ReadLine());
 				var parser = new FileIniDataParser();
 				IniData data = new IniData();
 				data["TGM"]["BotName"] = BotName;
@@ -143,6 +147,11 @@ namespace TwitchInteract
 				{
 					AnarchyMode = false;
 				}
+				else if (message.StartsWith("ChatBossStatus"))
+				{
+					var args = message.Split(';');
+					ChatBossMode = Boolean.Parse(args[1]);
+				}
 			}
 
 			async void UpdateViewers(object source, ElapsedEventArgs e)
@@ -163,6 +172,7 @@ namespace TwitchInteract
 		{
 			Console.ForegroundColor = ConsoleColor.Red;
 			Console.WriteLine(String.Format("No chat messages have been posted in the last {0} seconds! Restarting, probably a bug.", ChatCheckTimer.Interval / 1000));
+			Console.ForegroundColor = ConsoleColor.Gray;
 			UpdateViewerCount.Dispose();
 			ChatCheckTimer.Dispose();
 			pub_socket.Close();
@@ -177,7 +187,7 @@ namespace TwitchInteract
     class Bot
     {
         public static TwitchClient client;
-		bool PrintTwitchChat = true;
+		readonly bool PrintTwitchChat = true;
         public static bool SilentMode = true;
 
         public Bot(string BotName, string BotOauth, string TwitchChannel)
@@ -222,7 +232,18 @@ namespace TwitchInteract
                 Console.WriteLine(DateTime.Now.ToString("hh:mm:ss") + " -	 Received command: " + cmd);
 				if (cmd == "attack")
 				{
-					if (Program.pub_socket != null) Program.pub_socket.Send("AttackBoss");
+					Console.WriteLine(Program.ChatBossMode);
+					if (Program.ChatBossMode)
+					{
+						Console.WriteLine("sneed");
+						int damage = 1;
+						if (e.ChatMessage.IsSubscriber) damage = 2;
+						if (e.ChatMessage.Bits >= 100) damage = damage + e.ChatMessage.Bits / 100;
+						damage *= Math.Min(Math.Max(e.ChatMessage.SubscribedMonthCount, 3), 1);
+						string message = "{0} has dealt {1} damage to the boss!";
+						Console.WriteLine(String.Format(message, e.ChatMessage.Username, damage));
+						if (Program.pub_socket != null) Program.pub_socket.Send("AttackBoss;" + damage + ";" + e.ChatMessage.Username);
+					}
 				}
                 else if (Program.VotingTime && cmd != "attack")
                 {
@@ -247,16 +268,25 @@ namespace TwitchInteract
 
         private void Client_OnWhisperReceived(object sender, OnWhisperReceivedArgs e)
         {
-            if (e.WhisperMessage.Username == "my_friend")
-                client.SendWhisper(e.WhisperMessage.Username, "Hey! Whispers are so cool!!");
+            //if (e.WhisperMessage.Username == "my_friend")
+                //client.SendWhisper(e.WhisperMessage.Username, "Hey! Whispers are so cool!!");
         }
 
         private void Client_OnNewSubscriber(object sender, OnNewSubscriberArgs e)
         {
-            /*if (e.Subscriber.SubscriptionPlan == SubscriptionPlan.Prime)
+			/*if (e.Subscriber.SubscriptionPlan == SubscriptionPlan.Prime)
                 client.SendMessage(e.Channel, $"Welcome {e.Subscriber.DisplayName} to the substers! You just earned 500 points! So kind of you to use your Twitch Prime on this channel!");
             else
                 client.SendMessage(e.Channel, $"Welcome {e.Subscriber.DisplayName} to the substers! You just earned 500 points!");*/
-        }
+			if (Program.ChatBossMode)
+			{
+				int damage = 5;
+				if (e.Subscriber.SubscriptionPlan == TwitchLib.Client.Enums.SubscriptionPlan.Tier2) damage *= 2;
+				if (e.Subscriber.SubscriptionPlan == TwitchLib.Client.Enums.SubscriptionPlan.Tier3) damage *= 4;
+				string message = "{0} has subscribed and dealt {1} damage to the boss!";
+				Console.WriteLine(String.Format(message, e.Subscriber.DisplayName, damage));
+				Program.pub_socket.Send("AttackBoss;" + damage);
+			}
+		}
     }
 }
