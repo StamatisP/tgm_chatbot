@@ -1,16 +1,13 @@
 ﻿using System;
 using System.IO;
-using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Timers;
 using System.Threading;
 using System.Threading.Tasks;
 using Fleck;
 using TwitchLib.Client;
-using TwitchLib.Client.Enums;
+using TwitchLib.Api;
 using TwitchLib.Client.Events;
-using TwitchLib.Client.Extensions;
 using TwitchLib.Client.Models;
 using IniParser;
 using IniParser.Model;
@@ -23,37 +20,25 @@ namespace TwitchInteract
         public static bool AnarchyMode = false;
         public static IWebSocketConnection pub_socket;
 		static ManualResetEvent _quitEvent = new ManualResetEvent(false);
-		public static System.Timers.Timer ChatCheckTimer = new System.Timers.Timer();
+		public static System.Timers.Timer ChatCheckTimer;
+		public static System.Timers.Timer UpdateViewerCount;
 		public static WebSocketServer server;
- 
-        public static void Main(string[] args)
+		public static string BotName, BotOauth, TwitchChannel;
+		public static int? ChatCheckInterval;
+		public static TwitchAPI API;
+
+		public static void Main(string[] args)
         {
-			ChatCheckTimer.Elapsed += new ElapsedEventHandler(Program.TGM_Close);
-			ChatCheckTimer.Interval = 10000;
-			ChatCheckTimer.Enabled = false;
-			Console.CancelKeyPress += (sender, eArgs) => {
-				_quitEvent.Set();
-				eArgs.Cancel = true;
-			};
-			TGM_Init();
-			_quitEvent.WaitOne();
-		}
-
-		static void TGM_Init()
-		{
-			Program.server = new WebSocketServer("ws://0.0.0.0:8765")
-			{
-				RestartAfterListenError = true
-			};
-
-			string BotName, BotOauth, TwitchChannel;
 			if (File.Exists(Directory.GetCurrentDirectory() + "/config.ini"))
 			{
 				var parser = new FileIniDataParser();
 				IniData data = parser.ReadFile("config.ini");
-				BotName = data["TGM"]["BotName"];
+				BotName = data["TGM"]["BotName"] ?? "gameruiner9000";
 				BotOauth = data["TGM"]["BotOauth"];
 				TwitchChannel = data["TGM"]["TwitchChannel"];
+				int? default_interval = 5;
+				ChatCheckInterval = (int?) Convert.ToInt16(data["TGM"]["ConfirmConnectionIntervalInSeconds"]) ?? default_interval;
+				ChatCheckInterval *= 1000;
 			}
 			else
 			{
@@ -68,15 +53,55 @@ namespace TwitchInteract
 				data["TGM"]["BotName"] = BotName;
 				data["TGM"]["BotOauth"] = BotOauth;
 				data["TGM"]["TwitchChannel"] = TwitchChannel;
+				data["TGM"]["ConfirmConnectionIntervalInSeconds"] = ChatCheckInterval.ToString();
 				parser.WriteFile("config.ini", data);
 			}
-			Bot bot = new Bot(BotName, BotOauth, TwitchChannel);
+
+			API = new TwitchAPI();
+			API.Settings.AccessToken = BotOauth;
+
+			Console.CancelKeyPress += (sender, eArgs) => {
+				_quitEvent.Set();
+				eArgs.Cancel = true;
+			};
+			TGM_Init();
+			_quitEvent.WaitOne();
+		}
+
+		static void TGM_Init()
+		{
+			ChatCheckTimer = new System.Timers.Timer();
+			UpdateViewerCount = new System.Timers.Timer();
+			UpdateViewerCount.Elapsed += UpdateViewers;
+
+			ChatCheckTimer.Elapsed += Program.TGM_Close;
+			ChatCheckTimer.Interval = (double) ChatCheckInterval;
+			ChatCheckTimer.Enabled = false;
+
+			UpdateViewerCount.Interval = 15000;
+			UpdateViewerCount.Enabled = false;
+			Program.server = new WebSocketServer("ws://0.0.0.0:8765")
+			{
+				RestartAfterListenError = true
+			};
+
+			Bot bot = new Bot(Program.BotName, BotOauth, TwitchChannel);
 
 			server.Start(socket =>
 			{
 				Program.pub_socket = socket;
-				socket.OnOpen = () => { Console.WriteLine("Open server"); ChatCheckTimer.Enabled = true; };
-				socket.OnClose = () => Console.WriteLine("Close server");
+				socket.OnOpen = () => 
+				{
+					Console.WriteLine("Open server");
+					ChatCheckTimer.Enabled = true;
+					UpdateViewerCount.Enabled = true;
+				};
+				socket.OnClose = () =>
+				{
+					Console.WriteLine("Close server");
+					ChatCheckTimer.Enabled = false;
+					UpdateViewerCount.Enabled = false;
+				};
 				socket.OnMessage = message => MessageHandler(message, socket);
 				socket.OnError = (Exception) => Console.WriteLine("Socket error: ", Exception.ToString());
 			});
@@ -102,7 +127,7 @@ namespace TwitchInteract
 					for (int i = 0; i < actions.Count(); i++)
 					{
 						if (i == 0) continue;
-						if (!Bot.SilentMode) bot.client.SendMessage(TwitchChannel, actions[i]);
+						if (!Bot.SilentMode) Bot.client.SendMessage(TwitchChannel, actions[i]);
 						//socket.Send(actions[i]);
 					}
 				}
@@ -119,6 +144,17 @@ namespace TwitchInteract
 					AnarchyMode = false;
 				}
 			}
+
+			async void UpdateViewers(object source, ElapsedEventArgs e)
+			{
+				var chatters = await Task.Run(() => API.Undocumented.GetChattersAsync(TwitchChannel));
+				Console.WriteLine("Viewers: " + chatters.Count);
+				if (pub_socket != null && pub_socket.IsAvailable)
+				{
+					await pub_socket.Send("Viewers;" + chatters.Count.ToString());
+				}
+			}
+
 			Console.ForegroundColor = ConsoleColor.Green;
 			Console.WriteLine("Initialized...");
 		}
@@ -127,9 +163,11 @@ namespace TwitchInteract
 		{
 			Console.ForegroundColor = ConsoleColor.Red;
 			Console.WriteLine(String.Format("No chat messages have been posted in the last {0} seconds! Restarting, probably a bug.", ChatCheckTimer.Interval / 1000));
-			ChatCheckTimer.Enabled = false;
+			UpdateViewerCount.Dispose();
+			ChatCheckTimer.Dispose();
 			pub_socket.Close();
 			server.Dispose();
+			Bot.client.Disconnect();
 			TGM_Init();
 			//System.Diagnostics.Process.Start(Environment.GetCommandLineArgs()[0], Environment.GetCommandLineArgs()[1]);
 			//Environment.Exit(0);
@@ -138,7 +176,7 @@ namespace TwitchInteract
 
     class Bot
     {
-        public TwitchClient client;
+        public static TwitchClient client;
 		bool PrintTwitchChat = true;
         public static bool SilentMode = true;
 
@@ -181,8 +219,12 @@ namespace TwitchInteract
             {
                 string cmd = e.ChatMessage.Message.Substring(1);
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("Received command: " + cmd);
-                if (Program.VotingTime)
+                Console.WriteLine(DateTime.Now.ToString("hh:mm:ss") + " -	 Received command: " + cmd);
+				if (cmd == "attack")
+				{
+					if (Program.pub_socket != null) Program.pub_socket.Send("AttackBoss");
+				}
+                else if (Program.VotingTime && cmd != "attack")
                 {
                     //Program.VoteMessages.Add(new Tuple<string, string>(e.ChatMessage.Username, cmd));
                     if (Program.pub_socket != null) Program.pub_socket.Send("VoteInfo\n" + e.ChatMessage.Username + "\n" + cmd);
