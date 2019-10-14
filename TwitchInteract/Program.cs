@@ -248,6 +248,11 @@ namespace TwitchInteract
 						if (Program.pub_socket != null) Program.pub_socket.Send("AttackBoss;" + damage + ";" + e.ChatMessage.Username);
 					}
 				}
+				else if (cmd == "silentmode")
+				{
+					SilentMode = !SilentMode;
+					client.SendMessage(Program.TwitchChannel, "Silent mode: " + SilentMode);
+				}
                 else if (Program.VotingTime && cmd != "attack")
                 {
                     //Program.VoteMessages.Add(new Tuple<string, string>(e.ChatMessage.Username, cmd));
