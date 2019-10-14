@@ -24,7 +24,7 @@ namespace TwitchInteract
 		public static System.Timers.Timer UpdateViewerCount;
 		public static WebSocketServer server;
 		public static string BotName, BotOauth, TwitchChannel;
-		public static int? ChatCheckInterval;
+		public static int? ChatCheckInterval = 15;
 		public static TwitchAPI API;
 
 		public static bool ChatBossMode = false;
@@ -38,8 +38,7 @@ namespace TwitchInteract
 				BotName = data["TGM"]["BotName"] ?? "gameruiner9000";
 				BotOauth = data["TGM"]["BotOauth"];
 				TwitchChannel = data["TGM"]["TwitchChannel"];
-				int? default_interval = 5;
-				ChatCheckInterval = (int?) Convert.ToInt16(data["TGM"]["ConfirmConnectionIntervalInSeconds"]) ?? default_interval;
+				ChatCheckInterval = (int?) Convert.ToInt16(data["TGM"]["ConfirmConnectionIntervalInSeconds"]);
 				ChatCheckInterval *= 1000;
 			}
 			else
@@ -74,16 +73,16 @@ namespace TwitchInteract
 
 		static void TGM_Init()
 		{
-			ChatCheckTimer = new System.Timers.Timer();
 			UpdateViewerCount = new System.Timers.Timer();
 			UpdateViewerCount.Elapsed += UpdateViewers;
+			UpdateViewerCount.Interval = 15000;
+			UpdateViewerCount.Enabled = false;
 
+			ChatCheckTimer = new System.Timers.Timer();
 			ChatCheckTimer.Elapsed += Program.TGM_Close;
 			ChatCheckTimer.Interval = (double) ChatCheckInterval;
 			ChatCheckTimer.Enabled = false;
 
-			UpdateViewerCount.Interval = 15000;
-			UpdateViewerCount.Enabled = false;
 			Program.server = new WebSocketServer("ws://0.0.0.0:8765")
 			{
 				RestartAfterListenError = true
@@ -98,7 +97,11 @@ namespace TwitchInteract
 				{
 					Console.WriteLine("Open server");
 					ChatCheckTimer.Enabled = true;
+					ChatCheckTimer.Stop();
+					ChatCheckTimer.Start();
 					UpdateViewerCount.Enabled = true;
+					UpdateViewerCount.Stop();
+					UpdateViewerCount.Start();
 				};
 				socket.OnClose = () =>
 				{
@@ -171,7 +174,7 @@ namespace TwitchInteract
 		static void TGM_Close(object source, ElapsedEventArgs e)
 		{
 			Console.ForegroundColor = ConsoleColor.Red;
-			Console.WriteLine(String.Format("No chat messages have been posted in the last {0} seconds! Restarting, probably a bug.", ChatCheckTimer.Interval / 1000));
+			Console.WriteLine(String.Format("No chat messages have been posted in the last {0} seconds! This is a bug, restarting.", ChatCheckTimer.Interval / 1000));
 			Console.ForegroundColor = ConsoleColor.Gray;
 			UpdateViewerCount.Dispose();
 			ChatCheckTimer.Dispose();
@@ -232,14 +235,13 @@ namespace TwitchInteract
                 Console.WriteLine(DateTime.Now.ToString("hh:mm:ss") + " -	 Received command: " + cmd);
 				if (cmd == "attack")
 				{
-					Console.WriteLine(Program.ChatBossMode);
 					if (Program.ChatBossMode)
 					{
 						Console.WriteLine("sneed");
 						int damage = 1;
 						if (e.ChatMessage.IsSubscriber) damage = 2;
-						if (e.ChatMessage.Bits >= 100) damage = damage + e.ChatMessage.Bits / 100;
-						damage *= Math.Min(Math.Max(e.ChatMessage.SubscribedMonthCount, 3), 1);
+						if (e.ChatMessage.Bits >= 100) damage += e.ChatMessage.Bits / 50;
+						damage *= Math.Min(Math.Max(e.ChatMessage.SubscribedMonthCount, 3), 1); // max believable damage is around 66 (1000 bits), i might clamp it
 						string message = "{0} has dealt {1} damage to the boss!";
 						Console.WriteLine(String.Format(message, e.ChatMessage.Username, damage));
 						if (Program.pub_socket != null) Program.pub_socket.Send("AttackBoss;" + damage + ";" + e.ChatMessage.Username);
@@ -285,7 +287,7 @@ namespace TwitchInteract
 				if (e.Subscriber.SubscriptionPlan == TwitchLib.Client.Enums.SubscriptionPlan.Tier3) damage *= 4;
 				string message = "{0} has subscribed and dealt {1} damage to the boss!";
 				Console.WriteLine(String.Format(message, e.Subscriber.DisplayName, damage));
-				Program.pub_socket.Send("AttackBoss;" + damage);
+				Program.pub_socket.Send("AttackBoss;" + damage + ";" + e.Subscriber.DisplayName);
 			}
 		}
     }
