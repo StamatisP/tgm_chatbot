@@ -181,6 +181,7 @@ namespace TwitchInteract
 			pub_socket.Close();
 			server.Dispose();
 			Bot.client.Disconnect();
+			//GC.Collect();
 			TGM_Init();
 			//System.Diagnostics.Process.Start(Environment.GetCommandLineArgs()[0], Environment.GetCommandLineArgs()[1]);
 			//Environment.Exit(0);
