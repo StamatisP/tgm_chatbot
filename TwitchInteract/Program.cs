@@ -59,6 +59,7 @@ namespace TwitchInteract
 				data["TGM"]["ConfirmConnectionIntervalInSeconds"] = ChatCheckInterval.ToString();
 				parser.WriteFile("config.ini", data);
 			}
+			Console.Title = "Twitch Interact";
 
 			API = new TwitchAPI();
 			API.Settings.AccessToken = BotOauth;
@@ -110,7 +111,10 @@ namespace TwitchInteract
 					UpdateViewerCount.Enabled = false;
 				};
 				socket.OnMessage = message => MessageHandler(message, socket);
-				socket.OnError = (Exception) => Console.WriteLine("Socket error: ", Exception.ToString());
+				socket.OnError = (Exception) =>
+				{
+					Console.WriteLine("Socket error: ", Exception.ToString());
+				};
 			});
 
 			void MessageHandler(string message, IWebSocketConnection socket)
@@ -120,49 +124,51 @@ namespace TwitchInteract
 					Console.ForegroundColor = ConsoleColor.Green;
 					Console.WriteLine(message + " " + DateTime.Now.ToString("hh:mm:ss"));
 				}
-				if (message == "Connected Message!")
+				switch(message)
 				{
-					Console.WriteLine("WOO HOO! We connected!");
-				}
-				else if (message == "VoteTime")
-				{
-					VotingTime = true;
-				}
-				else if (message.StartsWith("VoteActions"))
-				{
-					var actions = message.Split(';');
-					for (int i = 0; i < actions.Count(); i++)
-					{
-						if (i == 0) continue;
-						if (!Bot.SilentMode) Bot.client.SendMessage(TwitchChannel, actions[i]);
-						//socket.Send(actions[i]);
-					}
-				}
-				else if (message == "VoteOver")
-				{
-					VotingTime = false;
-				}
-				else if (message == "anarchymode")
-				{
-					AnarchyMode = true;
-				}
-				else if (message == "democracymode")
-				{
-					AnarchyMode = false;
-				}
-				else if (message.StartsWith("ChatBossStatus"))
-				{
-					var args = message.Split(';');
-					ChatBossMode = Boolean.Parse(args[1]);
+					case "Connected Message":
+						Console.WriteLine("WOO HOO! We connected!");
+						break;
+					case "VoteTime":
+						VotingTime = true;
+						break;
+					case "VoteOver":
+						VotingTime = false;
+						break;
+					case "anarchymode":
+						AnarchyMode = true;
+						Console.WriteLine("Anarchy Mode: On");
+						break;
+					case "democracymode":
+						AnarchyMode = false;
+						Console.WriteLine("Democracy Mode: On");
+						break;
+					default:
+						if (message.StartsWith("VoteActions"))
+						{
+							var actions = message.Split(';');
+							for (int i = 0; i < actions.Count(); i++)
+							{
+								if (i == 0) continue;
+								if (!Bot.SilentMode) Bot.client.SendMessage(TwitchChannel, actions[i]);
+								//socket.Send(actions[i]);
+							}
+						}
+						if (message.StartsWith("ChatBossStatus"))
+						{
+							var args = message.Split(';');
+							ChatBossMode = Boolean.Parse(args[1]);
+						}
+						break;
 				}
 			}
 
 			async void UpdateViewers(object source, ElapsedEventArgs e)
 			{
-				var chatters = await Task.Run(() => API.Undocumented.GetChattersAsync(TwitchChannel));
-				Console.WriteLine("Viewers: " + chatters.Count);
 				if (pub_socket != null && pub_socket.IsAvailable)
 				{
+					var chatters = await Task.Run(() => API.Undocumented.GetChattersAsync(TwitchChannel));
+					Console.WriteLine("Viewers: " + chatters.Count);
 					await pub_socket.Send("Viewers;" + chatters.Count.ToString());
 				}
 			}
@@ -192,7 +198,7 @@ namespace TwitchInteract
     {
         public static TwitchClient client;
 		readonly bool PrintTwitchChat = true;
-        public static bool SilentMode = true;
+        public static bool SilentMode = false;
 
         public Bot(string BotName, string BotOauth, string TwitchChannel)
         {
@@ -250,13 +256,23 @@ namespace TwitchInteract
 				}
 				else if (cmd == "silentmode")
 				{
-					SilentMode = !SilentMode;
-					client.SendMessage(Program.TwitchChannel, "Silent mode: " + SilentMode);
+					if (e.ChatMessage.IsModerator)
+					{
+						SilentMode = !SilentMode;
+						client.SendMessage(Program.TwitchChannel, "Silent mode: " + SilentMode);
+					}
 				}
-                else if (Program.VotingTime && cmd != "attack")
-                {
-                    //Program.VoteMessages.Add(new Tuple<string, string>(e.ChatMessage.Username, cmd));
-                    if (Program.pub_socket != null) Program.pub_socket.Send("VoteInfo\n" + e.ChatMessage.Username + "\n" + cmd);
+				else if (cmd != "attack")
+				{
+					//Program.VoteMessages.Add(new Tuple<string, string>(e.ChatMessage.Username, cmd));
+					if (Program.VotingTime)
+					{
+						if (Program.pub_socket != null) Program.pub_socket.Send("VoteInfo\n" + e.ChatMessage.Username + "\n" + cmd);
+					}
+					else if (Program.AnarchyMode)
+					{
+						if (Program.pub_socket != null) Program.pub_socket.Send(cmd.ToLower());
+					}
                 }
             }
             else 
