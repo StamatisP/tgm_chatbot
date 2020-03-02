@@ -169,7 +169,14 @@ namespace TwitchInteract
 				{
 					var chatters = await Task.Run(() => API.Undocumented.GetChattersAsync(TwitchChannel));
 					Console.WriteLine("Viewers: " + chatters.Count);
-					await pub_socket.Send("Viewers;" + chatters.Count.ToString());
+					try
+					{
+						await pub_socket.Send("Viewers;" + chatters.Count.ToString());
+					}
+					catch (Fleck.ConnectionNotAvailableException)
+					{
+						Console.WriteLine("Cannot send viewer info if we are closing!");
+					}
 				}
 			}
 
