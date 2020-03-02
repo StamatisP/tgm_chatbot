@@ -31,6 +31,7 @@ namespace TwitchInteract
 
 		public static void Main(string[] args)
         {
+			Console.Title = "Twitch Interact";
 			if (File.Exists(Directory.GetCurrentDirectory() + "/config.ini"))
 			{
 				var parser = new FileIniDataParser();
@@ -38,7 +39,7 @@ namespace TwitchInteract
 				BotName = data["TGM"]["BotName"] ?? "gameruiner9000";
 				BotOauth = data["TGM"]["BotOauth"];
 				TwitchChannel = data["TGM"]["TwitchChannel"];
-				ChatCheckInterval = (int?) Convert.ToInt16(data["TGM"]["ConfirmConnectionIntervalInSeconds"]);
+				ChatCheckInterval = Convert.ToInt16(data["TGM"]["ConfirmConnectionIntervalInSeconds"]);
 				ChatCheckInterval *= 1000;
 			}
 			else
@@ -59,7 +60,6 @@ namespace TwitchInteract
 				data["TGM"]["ConfirmConnectionIntervalInSeconds"] = ChatCheckInterval.ToString();
 				parser.WriteFile("config.ini", data);
 			}
-			Console.Title = "Twitch Interact";
 
 			API = new TwitchAPI();
 			API.Settings.AccessToken = BotOauth;
@@ -230,7 +230,7 @@ namespace TwitchInteract
         private void Client_OnJoinedChannel(object sender, OnJoinedChannelArgs e)
         {
             Console.WriteLine("Connected to chat successfully!");
-            if (!SilentMode) client.SendMessage(e.Channel, "Connected successfully!");
+            if (!SilentMode) client.SendMessage(e.Channel, "Connected to chat successfully!");
         }
 
         private void Client_OnMessageReceived(object sender, OnMessageReceivedArgs e)
