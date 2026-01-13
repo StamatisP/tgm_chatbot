@@ -5,6 +5,7 @@ using TwitchLib.Api;
 using TwitchLib.Client.Events;
 using TwitchLib.Client.Models;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 
 // when publishing, use the command dotnet publish /p:Configuration=Release /p:PublishProfile=FolderProfile
 namespace TwitchInteract
@@ -47,25 +48,41 @@ namespace TwitchInteract
 
             if (File.Exists(configPath))
             {
-				config = JsonConvert.DeserializeObject<Config>(File.ReadAllText(configPath));
+				Console.WriteLine("config.json exists, loading...");
+				config = JsonConvert.DeserializeObject<Config>(File.ReadAllText(configPath), new JsonSerializerSettings
+				{
+					Error = delegate(object sender, Newtonsoft.Json.Serialization.ErrorEventArgs e)
+					{
+						Console.WriteLine("Could not read config.json correctly, error: ");
+						Console.WriteLine(e.ToString());
+						Console.WriteLine("You will be prompted for the bot's info again, and this will delete the previous config.json file. If you do not wish to continue, press CTRL + C or close the window.");
+						e.ErrorContext.Handled = true;
+						PromptForNewConfig(configPath);
+					}
+				});
             }
             else
             {
-                Console.WriteLine("Enter your bot's name.");
-                config.BotName = Console.ReadLine();
-                Console.WriteLine("Enter your bot's access token. You can paste by right clicking in the console window. (https://twitchtokengenerator.com)");
-                config.BotOauth = Console.ReadLine();
-                Console.WriteLine("Enter your bot's client ID.");
-                config.BotClientID = Console.ReadLine();
-                Console.WriteLine("What Twitch channel do you want to monitor?");
-                config.TwitchChannel = Console.ReadLine();
-                Console.WriteLine("What's the maximum amount of seconds between any two chat messages in your stream? (If you have frequent chatters, set this to 5 or lower. 30 is a good default.)");
-                config.ConfirmConnectionIntervalInSeconds = Int32.Parse(Console.ReadLine());
-                File.WriteAllText(configPath, JsonConvert.SerializeObject(config));
+				PromptForNewConfig(configPath);
             }
 
             creds = new ConnectionCredentials(config.BotName, config.BotOauth);
             API = new TwitchAPI() { Settings = { ClientId = config.BotName, AccessToken = config.BotOauth } };
+        }
+
+		static void PromptForNewConfig(string configPath)
+		{
+            Console.WriteLine("Enter your bot's name.");
+            config.BotName = Console.ReadLine();
+            Console.WriteLine("Enter your bot's access token. You can paste by right clicking in the console window. (https://twitchtokengenerator.com)");
+            config.BotOauth = Console.ReadLine();
+            Console.WriteLine("Enter your bot's client ID.");
+            config.BotClientID = Console.ReadLine();
+            Console.WriteLine("What Twitch channel do you want to monitor?");
+            config.TwitchChannel = Console.ReadLine();
+            Console.WriteLine("What's the maximum amount of seconds between any two chat messages in your stream? (If you have frequent chatters, set this to 10 or lower. 30 is a good default.)");
+            config.ConfirmConnectionIntervalInSeconds = Int32.Parse(Console.ReadLine());
+            File.WriteAllText(configPath, JsonConvert.SerializeObject(config));
         }
 
 		static void TGM_Init()
@@ -113,8 +130,10 @@ namespace TwitchInteract
 			{
 				if (message != "ConnTest")
 				{
+					ConsoleColor prevColor = Console.ForegroundColor;
 					Console.ForegroundColor = ConsoleColor.Green;
 					Console.WriteLine(message + " " + DateTime.Now.ToString("hh:mm:ss"));
+					Console.ForegroundColor = prevColor;
 				}
 				switch (message)
 				{
